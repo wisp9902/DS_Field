@@ -1,4 +1,0 @@
-cccc
-ccc
-ccc
-cccccccccccc
