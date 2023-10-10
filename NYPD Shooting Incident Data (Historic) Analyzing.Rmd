@@ -1,0 +1,191 @@
+
+---
+title: "NYPD Shooting Incident Data (Historic) Analyzing"
+date: '2023-09-15'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+
+## Import Library
+
+At first, we have to import some useful library of R, which can help to analyze the data in the following sections.
+
+```{r}
+
+library(tidyverse)
+library(lubridate)
+
+```
+
+## Import Data
+
+According to the assignment, we import the NYPD Shooting Incident Data (Historic) from the U.S. Government's Open Data website. Additionally, we can look at the table displayed by R studio to understand the variables of the data, Furthermore, we can find a data dictionary on the same website ("https://data.cityofnewyork.us/api/views/833y-fsy8/files/f5f61d94-6961-47bd-8d3c-e57ebeb4cb55?download=true&filename=NYPD_Shootings_Historic_DataDictionary.xlsx") to gain a clearer understanding of the definition of each variable.
+
+```{r pressure, echo=FALSE}
+
+NYPD_Data <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+NYPD_Data
+
+```
+
+## Date formatting
+
+To further analyze the relationship between time and the occurrence of cases, we adjusted the format of the OCCUR_DATE from "chr" to "date" .
+
+```{r}
+NYPD_Data$OCCUR_DATE<- as.Date(NYPD_Data$OCCUR_DATE,"%m/%d/%Y")
+glimpse(NYPD_Data)
+```
+
+#### Dropping Variables
+
+Dropping the variables of the data which we do not need in analyzing at these sector.
+
+```{r demo_drop, echo=TRUE}
+NYPD_Data_analyzing = select(NYPD_Data, -c(LOC_OF_OCCUR_DESC,
+                                           PRECINCT,
+                                           JURISDICTION_CODE,
+                                           LOC_CLASSFCTN_DESC,
+                                           LOCATION_DESC,
+                                           X_COORD_CD,
+                                           Y_COORD_CD,
+                                           Latitude,
+                                           Longitude,
+                                           Lon_Lat))
+
+```
+
+#### Tidy and Transform Variables
+
+At this stage, we need to examine the columns in our data to check for outliers and missing values. Properly addressing these issues is essential to prevent potential errors in subsequent data visualization and model analysis.
+
+```{r}
+lapply(NYPD_Data_analyzing, function(x) sum(is.na(x)))
+```
+
+For non-numerical classes, use "Unknown" as a complement to avoid deleting other data that can be analyzed due to the presence of NA values in the field. In addition, we have transformed the variables into a categorical (factor) form using 'as.factor' to facilitate further analysis.
+
+```{r}
+
+#Unknown
+NYPD_Data_analyzing <- NYPD_Data_analyzing%>%
+  replace_na(list(PERP_AGE_GROUP = 'UNKNOWN',
+                  PERP_SEX = 'UNKNOWN',
+                  PERP_RACE = 'UNKNOWN' ))
+
+#Delete 
+NYPD_Data_analyzing <- subset(NYPD_Data_analyzing,PERP_AGE_GROUP!="1020" & PERP_AGE_GROUP!="224" &PERP_AGE_GROUP!="940" &VIC_AGE_GROUP!="1022" )
+
+#date
+NYPD_Data_analyzing$year <- year(NYPD_Data_analyzing$OCCUR_DATE)
+NYPD_Data_analyzing$month <- month(NYPD_Data_analyzing$OCCUR_DATE)
+
+#(null)
+NYPD_Data_analyzing$PERP_AGE_GROUP = recode(NYPD_Data_analyzing$PERP_AGE_GROUP, "(null)" = 'UNKNOWN')
+NYPD_Data_analyzing$PERP_SEX = recode(NYPD_Data_analyzing$PERP_SEX, U = 'UNKNOWN')
+NYPD_Data_analyzing$PERP_SEX = recode(NYPD_Data_analyzing$PERP_SEX, "(null)" = 'UNKNOWN')
+NYPD_Data_analyzing$PERP_RACE = recode(NYPD_Data_analyzing$PERP_RACE, "(null)" = 'UNKNOWN')
+NYPD_Data_analyzing$PERP_RACE = recode(NYPD_Data_analyzing$PERP_RACE, "(Other)" = 'UNKNOWN')
+
+#factor
+NYPD_Data_analyzing$BORO = as.factor(NYPD_Data_analyzing$BORO)
+NYPD_Data_analyzing$PERP_AGE_GROUP = as.factor(NYPD_Data_analyzing$PERP_AGE_GROUP)
+NYPD_Data_analyzing$PERP_SEX = as.factor(NYPD_Data_analyzing$PERP_SEX)
+NYPD_Data_analyzing$PERP_RACE = as.factor(NYPD_Data_analyzing$PERP_RACE)
+NYPD_Data_analyzing$VIC_AGE_GROUP = as.factor(NYPD_Data_analyzing$VIC_AGE_GROUP)
+NYPD_Data_analyzing$VIC_SEX = as.factor(NYPD_Data_analyzing$VIC_SEX)
+NYPD_Data_analyzing$VIC_RACE = as.factor(NYPD_Data_analyzing$VIC_RACE)
+
+
+```
+
+We reviewed the processed data using the 'summary()' function, and the results are as follows
+
+```{r}
+summary(NYPD_Data_analyzing)
+```
+
+## Visualization
+
+1.(Date)
+
+In addition to using the 'summary()' method to identify missing values or other categories, data visualization can enhance our understanding of the data. Here, we attempted to visualize the data on an annual and monthly basis, and the results are as follows:
+
+```{r}
+#
+hist(NYPD_Data_analyzing$year,xlab = "year",main = "Frequency by year")
+
+```
+
+Firstly, visualizing the data on an annual basis reveals that the frequency of occurrences was higher in earlier years, with a gradual decline in frequency until around 2010. However, there has been a gradual increase in frequency since 2020.
+
+```{r}
+
+hist(NYPD_Data_analyzing$month,xlab = "month",main = "Frequency by month")
+
+```
+
+Next, when we visualized the data on a monthly basis, the results showed a bell-shaped distribution of events, with a concentration in the months of June to August. July had the highest frequency of occurrences. The data accumulated over several years mostly clustered around these months. This pattern may be related to recurring events such as festivals or parades, but due to limitations in the data available to us, we cannot conduct further analysis in this regard.
+
+2.(Boro)
+
+In addition to the annual and monthly data, this study aims to focus on the regional aspect to examine whether there have been changes or any notable variations in the frequency of events over the years. We present the data using two types of visualizations: the first is a stacked bar chart displaying the actual counts, and the second is a percentage breakdown of events by region for each year. Here are the specific details:
+
+```{r}
+
+NYPD_Data_analyzing$count <- 1
+
+#
+NYPD_Data_analyzing$yearcut <- cut(year(NYPD_Data_analyzing$OCCUR_DATE),breaks = 16 )
+NYPD_Data_analyzing_year<- select(NYPD_Data_analyzing,yearcut,BORO,count)
+
+#
+ggplot(NYPD_Data_analyzing,aes(yearcut,fill=BORO))+geom_bar()
+
+```
+```{r}
+ggplot(NYPD_Data_analyzing,aes(yearcut,fill=BORO))+geom_bar(position = "fill")
+```
+
+
+
+Specifically, the percentages by region have remained relatively stable over the years. However, starting in 2020, a noticeable increase in events can be observed in the BRONX region, leading to a significant contribution to the overall growth in event counts in that area.
+
+
+
+
+
+## Modeling logistic refression.
+
+According to the data dictionary we have obtained, events can be categorized as causing victim fatalities using the 'MURDER_FLAG' indicator. This is a significant and severe scenario that we wish to focus on. We conducted a logistic regression analysis, incorporating factors such as region, time (month), and victim-related data to identify significant factors associated with victim fatalities. The results of this analysis are presented using the 'summary()' function.
+
+
+```{r}
+
+NYPD_Data_analyzing$month_factor = NYPD_Data_analyzing$month
+NYPD_Data_analyzing$month_factor = as.factor(NYPD_Data_analyzing$month_factor)
+
+glm.fit = glm(NYPD_Data_analyzing$STATISTICAL_MURDER_FLAG ~ NYPD_Data_analyzing$BORO
+                                                          + NYPD_Data_analyzing$VIC_AGE_GROUP
+                                                          + NYPD_Data_analyzing$VIC_SEX
+                                                          + NYPD_Data_analyzing$VIC_RACE
+                                                          + NYPD_Data_analyzing$month_factor )
+summary(glm.fit)
+
+```
+
+The results indicate that certain factors, such as the victim's age, are significantly correlated. Region, on the other hand, is only significantly correlated with MANHATTAN. The factor of month shows significance at a confidence level of 0.05. These findings are based on our model analysis using the data we have obtained.
+
+
+## Bias Identification and conclusion
+
+The data obtained allows for analysis, and statistical tests provide insights at the data level. However, it's essential to remember that such analytically results are heavily dependent on the data source. For instance, when reviewing the initial data, we observed a significant number of missing values (NA), which can be a limitation. Despite our imputation efforts, these missing values could still introduce bias into the analysis compared to the true data.
+
+When making judgments, it's crucial to have a clear understanding of the data limitations and base your analysis on the information available. The most important aspect, in my opinion, is to remain humble and avoid making dogmatic conclusions based solely on your analysis.
+
+
+
+

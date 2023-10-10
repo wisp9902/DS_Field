@@ -1,0 +1,221 @@
+---
+title: "COVID-19_Data_analysis"
+author: "CC"
+date: "2023-10-09"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+## Import Library
+
+
+At first, we have to import some useful library of R, which can help to analyze the data in the following sections.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+## Statement & Interesting
+
+To better understand the impact of COVID-19, especially in the United States, we need to analyze data. We hope that through the insights conveyed by data, we can gather useful information. For example, identifying areas with a higher case rate or regions with a higher mortality rate could provide valuable insights for relevant departments and organizations. This information might lead to further actions, such as investigating whether there's a lack of healthcare resources in certain areas or if the density of healthcare facilities contributes to a higher mortality rate. As we approach the end of 2023, we still aim to gain insights from COVID-19 data to address future challenges, which is our ultimate goal.
+
+
+
+## Import Data
+According to the course instructions, we need to search for COVID-19 data from various sources. Consistent with the course demonstration, after comparison, I chose to use data from Johns Hopkins University because they provide more comprehensive information about the data source. As the pandemic evolved, the website displays the last data date as March 9, 2023, which aligns with the time frame for data import, visualization, and model analysis in our project.
+
+We intend to focus on analyzing COVID-19 data in the United States, so we selected data related to the USA. The specific data source can be found at the following link: https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series
+
+
+```{r}
+
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c("time_series_covid19_confirmed_US.csv",
+                "time_series_covid19_deaths_US.csv")
+
+urls <- str_c(url_in,file_names)
+US_cases <- read_csv(urls[1])
+US_deaths <- read_csv(urls[2])
+
+```
+
+After importing the data we intend to analyze, we pause at this step to examine it using RStudio. We want to check if there are any unnecessary variables and understand the specific format of the data. Does it align with our expectations? Through this inspection process, we gain insights into what our next steps should be and how to handle this data effectively.
+
+```{r}
+US_cases 
+US_deaths 
+```
+
+#### Tidy Data
+
+At this stage, after examining the imported data format, we identified some columns that are not necessary for our analysis. Here, we proceed with data processing by removing unnecessary variables. We also organize the case count and death count into a format where we have one record per day and per region. This format will facilitate conducting time-series-related analyses, similar to the demonstration provided by the instructor in class.
+
+```{r}
+
+US_cases <- US_cases%>%
+  pivot_longer(cols= -c(UID:Combined_Key),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))
+
+US_deaths <- US_deaths%>%
+  pivot_longer(cols= -c(UID:Population),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))
+
+US <- US_cases %>% full_join(US_deaths)
+US
+```
+
+Next, we use the 'summary()' function to review the data we've organized to confirm that the data format meets our expectations and doesn't require any specific adjustments.
+
+```{r}
+summary(US)
+```
+
+#### Visualizing
+
+After organizing the data, we follow the steps outlined in the course for visualization. In this step, we plot time on the X-axis and cumulative death counts and case counts on the Y-axis to depict the evolution of COVID-19 in the US over time. The specific results are as follows:
+
+```{r}
+#
+US_by_state <- US %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000/ Population) %>%
+  select(Province_State, Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+US_total <- US_by_state %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000/ Population) %>%
+  select(Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+
+US_total %>%
+ filter(cases>0) %>%
+ ggplot(aes(x=date, y=cases))+
+ geom_line(aes(color="cases"))+
+ geom_point(aes(color="cases"))+
+ geom_line(aes(y=deaths, color = "deaths"))+
+ geom_point(aes(y=deaths, color = "deaths"))+
+ scale_y_log10()+
+ theme(legend.position = "bottom",
+       axis.text.x = element_text(angle=90))+
+ labs(title = "COVID19 in US", y=NULL)
+
+```
+
+In addition to cumulative numbers, we further incorporated a new variable, which is the daily new counts. This is calculated by subtracting the cumulative counts of one day from the cumulative counts of the previous day. This approach helps to visualize trends.
+
+```{r}
+#Add
+US_total <- US_total %>%
+  mutate(new_cases = cases- lag(cases),
+         new_deaths = deaths- lag(deaths),)
+
+US_total %>%
+  ggplot(aes(x=date, y=new_cases))+
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases"))+
+  geom_line(aes(y=new_deaths, color = "new_deaths"))+
+  geom_point(aes(y=new_deaths, color = "new_deaths"))+
+  scale_y_log10()+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle=90))+
+  labs(title = "COVID19 in US", y=NULL)
+```
+
+Because COVID-19-related deaths are the least desirable outcome, especially in larger cities where the impact can be more severe, we want to examine cities with a population greater than 5,000,000. We will assess which cities perform the best and worst based on the metric of deaths per thousand people.
+
+Next, we will create a linear model to determine whether it has predictive power at a statistically significant confidence level. This analysis aims to provide insights and information for decision-making.
+
+
+```{r}
+#State
+US_state_totals <- US_by_state %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+            Population = max(Population),
+            cases_per_thou = 1000* cases / Population,
+            deaths_per_thou = 1000* deaths / Population) %>%
+  filter(cases >0, Population >5000000)
+
+US_state_totals %>%
+  slice_min(deaths_per_thou, n = 10) %>%
+select(deaths_per_thou, cases_per_thou, everything())
+
+US_state_totals %>%
+  slice_max(deaths_per_thou, n = 10) %>%
+select(deaths_per_thou, cases_per_thou, everything())
+
+```
+
+The results indicate that Arizona has the highest deaths per thousand, while Washington has the lowest. In the next step, we will use data from these two cities for our model analysis.
+
+
+#Compared the Arizona and Washington
+
+```{r}
+
+ComparedAZWA <- US_by_state %>% 
+                filter(Province_State=="Arizona" | Province_State=="Washington")
+
+
+ggplot(data=ComparedAZWA,aes(x=date,y=cases)) +
+  geom_bar(stat="identity") +
+  facet_wrap("Province_State") +
+  labs(title="Comparing Arizona vs Washington")
+
+
+```
+
+```{r}
+US_by_state
+```
+
+
+#Modeling
+
+```{r}
+ArizonaData <- ComparedAZWA %>% filter(Province_State=="Arizona") %>% mutate(indicator = 1000* cases / Population)
+WashingtonData <- ComparedAZWA %>% filter(Province_State=="Washington")  %>% mutate(indicator = 1000* cases / Population)
+
+ComparedAZWA2 <- merge(ArizonaData, WashingtonData, by = "date") 
+mod <- lm(indicator.y ~ indicator.x, data = ComparedAZWA2)
+
+summary(mod)
+```
+
+
+According to the linear model, our analysis involving Arizona and Washington resulted in the establishment of a predictive model. At a 0.01 confidence level, the variables demonstrate statistical significance. Furthermore, with an r^2 value of 0.976, indicating very high explanatory power, it suggests a strong linear relationship between the two. Based on the data we currently have, it appears that y-variable can be predicted from x-variable.
+
+
+## Bias Identification and conclusion
+
+In this final project, we conducted various analyses, including presenting distributions using visual charts, filtering out cities with the highest and lowest deaths per thousand people, and then building linear models and data predictions for them. We found statistically significant correlations, which could potentially be used for decision-making. For example, if we noticed an increase in confirmed cases in Arizona, we could anticipate a similar trend in Washington, allowing us to prepare medical resources in advance.
+
+However, our data analysis has biases, primarily because our data is very limited. We had only one variable (x) to use for prediction, which could easily lead to model over-fitting. This resulted in a very high r-squared value. Therefore, we should maintain a conservative approach. The conclusions drawn are based on the data we currently have. Furthermore, we should strive to collect more comprehensive data, validate relationships using data from multiple perspectives, and identify more critical variables. This is what data scientists should do—remain objective, avoid preconceived notions, and gather as much complete data as possible to provide higher-quality decision recommendations to help solve problems. This is my biggest takeaway from this course. Thank you for your time.
+
+
+
+
+
+
+
+
+
